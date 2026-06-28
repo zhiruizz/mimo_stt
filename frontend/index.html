@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MiMo STT - 语音转文字</title>
+<style>
+:root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #242836;
+    --border: #2e3345;
+    --text: #e4e6f0;
+    --text2: #8b8fa8;
+    --accent: #6c5ce7;
+    --accent2: #a29bfe;
+    --success: #00b894;
+    --error: #e17055;
+    --warn: #fdcb6e;
+    --danger: #d63031;
+    --radius: 12px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    font-family: 'Segoe UI', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+.container {
+    max-width: 800px;
+    width: 100%;
+    padding: 24px;
+    margin: 0 auto;
+}
+
+/* Header */
+header {
+    text-align: center;
+    padding: 40px 0 20px;
+    position: relative;
+}
+header h1 {
+    font-size: 28px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 6px;
+}
+header p {
+    color: var(--text2);
+    font-size: 14px;
+}
+
+/* Shutdown button */
+.btn-shutdown {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    padding: 8px 16px;
+    background: rgba(214, 48, 49, 0.15);
+    border: 1px solid var(--danger);
+    border-radius: 8px;
+    color: var(--danger);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    z-index: 100;
+    transition: all 0.2s;
+}
+.btn-shutdown:hover {
+    background: var(--danger);
+    color: #fff;
+}
+
+/* Card */
+.card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 16px;
+}
+.card-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: var(--text);
+}
+
+/* Drop Zone */
+.drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+}
+.drop-zone:hover, .drop-zone.dragover {
+    border-color: var(--accent);
+    background: rgba(108, 92, 231, 0.05);
+}
+.drop-zone .icon { font-size: 48px; margin-bottom: 12px; }
+.drop-zone .label { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+.drop-zone .hint { font-size: 13px; color: var(--text2); }
+.drop-zone input[type="file"] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+}
+
+/* File Info */
+.file-info {
+    display: none; align-items: center; gap: 12px;
+    padding: 12px 16px; background: var(--surface2); border-radius: 8px; margin-top: 12px;
+}
+.file-info.show { display: flex; }
+.file-info .fi-icon { font-size: 28px; }
+.file-info .fi-name { flex: 1; font-size: 14px; font-weight: 500; word-break: break-all; }
+.file-info .fi-size { font-size: 13px; color: var(--text2); white-space: nowrap; }
+.file-info .fi-remove {
+    background: none; border: none; color: var(--error); cursor: pointer; font-size: 18px; padding: 4px;
+}
+
+/* Settings */
+.settings-row { display: flex; gap: 16px; flex-wrap: wrap; }
+.setting-group { flex: 1; min-width: 200px; }
+.setting-group label {
+    display: block; font-size: 13px; color: var(--text2); margin-bottom: 6px; font-weight: 500;
+}
+.setting-group select,
+.setting-group input[type="text"] {
+    width: 100%; padding: 10px 12px; background: var(--surface2);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); font-size: 14px; outline: none; transition: border-color 0.2s;
+}
+.setting-group select:focus,
+.setting-group input[type="text"]:focus { border-color: var(--accent); }
+
+/* Checkbox */
+.checkbox-row {
+    display: flex; align-items: center; gap: 8px; margin-top: 12px; cursor: pointer;
+}
+.checkbox-row input[type="checkbox"] {
+    width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;
+}
+.checkbox-row label { font-size: 13px; color: var(--text2); cursor: pointer; }
+
+/* Buttons */
+.btn-primary {
+    width: 100%; padding: 14px;
+    background: linear-gradient(135deg, var(--accent), #7c6cf0);
+    border: none; border-radius: 8px; color: #fff;
+    font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: opacity 0.2s; margin-top: 16px;
+}
+.btn-primary:hover { opacity: 0.9; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Progress */
+.progress-section { display: none; }
+.progress-section.show { display: block; }
+.progress-bar-wrap {
+    height: 8px; background: var(--surface2); border-radius: 4px; overflow: hidden; margin-bottom: 10px;
+}
+.progress-bar {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 4px; width: 0%; transition: width 0.3s;
+}
+.progress-text { font-size: 13px; color: var(--text2); text-align: center; }
+.progress-text .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Result */
+.result-section { display: none; }
+.result-section.show { display: block; }
+.result-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+}
+.result-header .status-badge {
+    font-size: 13px; padding: 4px 10px; border-radius: 20px; font-weight: 500;
+}
+.status-badge.success { background: rgba(0,184,148,0.15); color: var(--success); }
+.status-badge.error { background: rgba(225,112,85,0.15); color: var(--error); }
+.result-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn-sm {
+    padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--surface2); color: var(--text); font-size: 13px;
+    cursor: pointer; transition: all 0.2s;
+}
+.btn-sm:hover { border-color: var(--accent); color: var(--accent2); }
+.btn-sm.save-md { border-color: var(--success); color: var(--success); }
+.btn-sm.save-md:hover { background: var(--success); color: #fff; }
+.result-text {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; font-size: 14px; line-height: 1.8;
+    white-space: pre-wrap; word-break: break-all;
+    max-height: 500px; overflow-y: auto; min-height: 80px;
+}
+.result-text::-webkit-scrollbar { width: 6px; }
+.result-text::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Save status */
+.save-status {
+    margin-top: 8px; padding: 8px 12px; border-radius: 6px;
+    font-size: 13px; display: none;
+}
+.save-status.show { display: block; }
+.save-status.success { background: rgba(0,184,148,0.1); color: var(--success); }
+.save-status.error { background: rgba(225,112,85,0.1); color: var(--error); }
+
+/* Segments */
+.segments-section { margin-top: 12px; }
+.segment-item {
+    padding: 8px 12px; background: var(--surface2); border-radius: 6px;
+    margin-bottom: 6px; font-size: 13px;
+}
+.segment-item .seg-label { color: var(--accent2); font-weight: 600; margin-right: 8px; }
+
+/* Toast */
+.toast {
+    position: fixed; top: 20px; right: 20px; padding: 12px 20px;
+    border-radius: 8px; font-size: 14px; font-weight: 500;
+    z-index: 999; animation: slideIn 0.3s ease; max-width: 360px;
+}
+.toast.success { background: var(--success); color: #fff; }
+.toast.error { background: var(--error); color: #fff; }
+@keyframes slideIn {
+    from { opacity:0; transform: translateX(40px); }
+    to { opacity:1; transform: translateX(0); }
+}
+
+/* Confirm overlay */
+.confirm-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); z-index: 200;
+    justify-content: center; align-items: center;
+}
+.confirm-overlay.show { display: flex; }
+.confirm-box {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 28px; max-width: 400px; width: 90%; text-align: center;
+}
+.confirm-box h3 { margin-bottom: 12px; font-size: 18px; }
+.confirm-box p { color: var(--text2); font-size: 14px; margin-bottom: 20px; }
+.confirm-box .btns { display: flex; gap: 12px; justify-content: center; }
+.confirm-box .btns button {
+    padding: 10px 28px; border-radius: 8px; border: none;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.confirm-box .btn-cancel { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+.confirm-box .btn-confirm { background: var(--danger); color: #fff; }
+
+@media (max-width: 600px) {
+    .container { padding: 16px; }
+    header h1 { font-size: 22px; }
+    .drop-zone { padding: 32px 16px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Shutdown button -->
+<button class="btn-shutdown" id="shutdownBtn">⏻ 关闭服务</button>
+
+<div class="container">
+    <header>
+        <h1>MiMo STT</h1>
+        <p>基于小米 MiMo 多模态模型的语音转文字工具</p>
+    </header>
+
+    <!-- Upload -->
+    <div class="card">
+        <div class="card-title">📁 选择文件</div>
+        <div class="drop-zone" id="dropZone">
+            <div class="icon">🎤</div>
+            <div class="label">拖拽文件到此处，或点击选择</div>
+            <div class="hint">支持 MP3, WAV, FLAC, M4A, OGG, MP4, MKV, AVI, MOV 等格式</div>
+            <input type="file" id="fileInput" accept="audio/*,video/*,.mp3,.wav,.flac,.m4a,.ogg,.mp4,.mkv,.avi,.mov,.webm,.ts,.flv,.wmv,.aac,.wma,.opus">
+        </div>
+        <div class="file-info" id="fileInfo">
+            <span class="fi-icon">📄</span>
+            <span class="fi-name" id="fileName"></span>
+            <span class="fi-size" id="fileSize"></span>
+            <button class="fi-remove" id="fileRemove" title="移除">✕</button>
+        </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="card">
+        <div class="card-title">⚙️ API 设置</div>
+        <div class="setting-group">
+            <label>API Endpoint</label>
+            <input type="text" id="apiEndpointInput" placeholder="https://token-plan-cn.xiaomimimo.com/v1/chat/completions">
+        </div>
+        <div class="setting-group" style="margin-top:12px;">
+            <label>API Key</label>
+            <input type="text" id="apiKeyInput" placeholder="输入你的 API Key">
+        </div>
+        <div class="settings-row" style="margin-top:12px;">
+            <div class="setting-group">
+                <label>模型名称</label>
+                <select id="modelSelect">
+                    <option value="mimo-v2.5">mimo-v2.5（推理模型）</option>
+                    <option value="mimo-v2-omni">mimo-v2-omni</option>
+                    <option value="__custom__">自定义...</option>
+                </select>
+                <input type="text" id="modelCustomInput" placeholder="输入自定义模型名" style="margin-top:6px;display:none;">
+            </div>
+        </div>
+        <div class="setting-group" style="margin-top:12px;">
+            <label>提示词（可自定义转录指令）</label>
+            <input type="text" id="promptInput" value="请将音频中的语音内容逐字转录为文本。只输出转录文本，不要添加任何额外说明。">
+        </div>
+        <div class="setting-group" style="margin-top:12px;">
+            <label>📁 输出文件夹（保存 Markdown 时使用）</label>
+            <input type="text" id="outputDirInput" placeholder="留空则使用默认 output 文件夹">
+        </div>
+        <div class="checkbox-row">
+            <input type="checkbox" id="autoSaveCheck">
+            <label for="autoSaveCheck">转录完成后自动保存 Markdown 文件</label>
+        </div>
+        <button class="btn-primary" id="startBtn" disabled>🚀 开始转录</button>
+    </div>
+
+    <!-- Progress -->
+    <div class="card progress-section" id="progressSection">
+        <div class="card-title">⏳ 转录进度</div>
+        <div class="progress-bar-wrap">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+        <div class="progress-text" id="progressText">
+            <span class="spinner"></span> 等待中...
+        </div>
+    </div>
+
+    <!-- Result -->
+    <div class="card result-section" id="resultSection">
+        <div class="result-header">
+            <span class="card-title" style="margin:0">📝 转录结果</span>
+            <div class="result-actions">
+                <button class="btn-sm" id="copyBtn">📋 复制</button>
+                <button class="btn-sm save-md" id="saveMdBtn">💾 保存 Markdown</button>
+                <button class="btn-sm" id="downloadBtn">⬇ 下载 TXT</button>
+            </div>
+        </div>
+        <span class="status-badge success" id="statusBadge" style="display:none"></span>
+        <div class="result-text" id="resultText"></div>
+        <div class="save-status" id="saveStatus"></div>
+        <div class="segments-section" id="segmentsSection"></div>
+    </div>
+</div>
+
+<!-- Confirm overlay -->
+<div class="confirm-overlay" id="confirmOverlay">
+    <div class="confirm-box">
+        <h3>⚠️ 确认关闭</h3>
+        <p>关闭后服务将停止，浏览器页面将无法使用。<br>确定要关闭 MiMo STT 服务吗？</p>
+        <div class="btns">
+            <button class="btn-cancel" id="confirmCancel">取消</button>
+            <button class="btn-confirm" id="confirmOk">确认关闭</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── Elements ──────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const fileInfo = document.getElementById('fileInfo');
+const fileNameEl = document.getElementById('fileName');
+const fileSizeEl = document.getElementById('fileSize');
+const fileRemove = document.getElementById('fileRemove');
+const apiEndpointInput = document.getElementById('apiEndpointInput');
+const apiKeyInput = document.getElementById('apiKeyInput');
+const modelSelect = document.getElementById('modelSelect');
+const modelCustomInput = document.getElementById('modelCustomInput');
+const promptInput = document.getElementById('promptInput');
+const outputDirInput = document.getElementById('outputDirInput');
+const autoSaveCheck = document.getElementById('autoSaveCheck');
+const startBtn = document.getElementById('startBtn');
+const progressSection = document.getElementById('progressSection');
+const progressBar = document.getElementById('progressBar');
+const progressText = document.getElementById('progressText');
+const resultSection = document.getElementById('resultSection');
+const resultText = document.getElementById('resultText');
+const statusBadge = document.getElementById('statusBadge');
+const copyBtn = document.getElementById('copyBtn');
+const saveMdBtn = document.getElementById('saveMdBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const saveStatus = document.getElementById('saveStatus');
+const segmentsSection = document.getElementById('segmentsSection');
+const shutdownBtn = document.getElementById('shutdownBtn');
+const confirmOverlay = document.getElementById('confirmOverlay');
+const confirmCancel = document.getElementById('confirmCancel');
+const confirmOk = document.getElementById('confirmOk');
+
+let selectedFile = null;
+let currentTaskId = null;
+let pollTimer = null;
+
+// ── localStorage persistence ──────────────────────────────
+const STORAGE_KEY = 'mimo_stt_settings';
+
+function loadSettings() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (saved.apiEndpoint) apiEndpointInput.value = saved.apiEndpoint;
+        if (saved.apiKey) apiKeyInput.value = saved.apiKey;
+        if (saved.model) {
+            const opts = Array.from(modelSelect.options).map(o => o.value);
+            if (opts.includes(saved.model)) {
+                modelSelect.value = saved.model;
+            } else {
+                modelSelect.value = '__custom__';
+                modelCustomInput.value = saved.model;
+                modelCustomInput.style.display = 'block';
+            }
+        }
+        if (saved.prompt) promptInput.value = saved.prompt;
+        if (saved.outputDir) outputDirInput.value = saved.outputDir;
+        if (saved.autoSave !== undefined) autoSaveCheck.checked = saved.autoSave;
+    } catch (e) {}
+}
+
+function saveSettings() {
+    const model = modelSelect.value === '__custom__' ? modelCustomInput.value.trim() : modelSelect.value;
+    const settings = {
+        apiEndpoint: apiEndpointInput.value.trim(),
+        apiKey: apiKeyInput.value.trim(),
+        model: model,
+        prompt: promptInput.value,
+        outputDir: outputDirInput.value.trim(),
+        autoSave: autoSaveCheck.checked,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+}
+
+// Save on any change
+[apiEndpointInput, apiKeyInput, modelCustomInput, promptInput, outputDirInput].forEach(el => {
+    el.addEventListener('change', saveSettings);
+});
+[modelSelect, autoSaveCheck].forEach(el => {
+    el.addEventListener('change', () => {
+        if (modelSelect.value === '__custom__') {
+            modelCustomInput.style.display = 'block';
+        } else {
+            modelCustomInput.style.display = 'none';
+        }
+        saveSettings();
+    });
+});
+
+// Load on startup
+loadSettings();
+
+// ── Get effective model name ──────────────────────────────
+function getModel() {
+    if (modelSelect.value === '__custom__') {
+        return modelCustomInput.value.trim() || 'mimo-v2.5';
+    }
+    return modelSelect.value;
+}
+
+// ── File Selection ────────────────────────────────────────
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1024/1024).toFixed(1) + ' MB';
+}
+
+function setFile(file) {
+    if (!file) return;
+    selectedFile = file;
+    fileNameEl.textContent = file.name;
+    fileSizeEl.textContent = formatSize(file.size);
+    fileInfo.classList.add('show');
+    startBtn.disabled = false;
+}
+
+function clearFile() {
+    selectedFile = null;
+    fileInput.value = '';
+    fileInfo.classList.remove('show');
+    startBtn.disabled = true;
+}
+
+fileInput.addEventListener('change', e => { if (e.target.files[0]) setFile(e.target.files[0]); });
+fileRemove.addEventListener('click', clearFile);
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+});
+
+// ── Upload & Transcribe ───────────────────────────────────
+startBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    // Validate API settings
+    const apiKey = apiKeyInput.value.trim();
+    const apiEndpoint = apiEndpointInput.value.trim();
+    if (!apiKey) { showToast('请填写 API Key', 'error'); return; }
+    if (!apiEndpoint) { showToast('请填写 API Endpoint', 'error'); return; }
+
+    startBtn.disabled = true;
+    progressSection.classList.add('show');
+    resultSection.classList.remove('show');
+    segmentsSection.innerHTML = '';
+    saveStatus.classList.remove('show');
+    progressBar.style.width = '0%';
+    progressText.innerHTML = '<span class="spinner"></span> 上传中...';
+    statusBadge.style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('model', getModel());
+    formData.append('prompt', promptInput.value);
+    formData.append('api_key', apiKey);
+    formData.append('api_endpoint', apiEndpoint);
+
+    try {
+        const resp = await fetch('/api/transcribe', { method: 'POST', body: formData });
+        const data = await resp.json();
+        if (data.error) { showError(data.error); return; }
+        currentTaskId = data.task_id;
+        pollStatus();
+    } catch (err) {
+        showError('上传失败: ' + err.message);
+    }
+});
+
+function pollStatus() {
+    if (!currentTaskId) return;
+    pollTimer = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/status/${currentTaskId}`);
+            const data = await resp.json();
+            updateProgress(data);
+            if (data.status === 'done' || data.status === 'error') {
+                clearInterval(pollTimer);
+                pollTimer = null;
+                finishTask(data);
+            }
+        } catch (err) {}
+    }, 800);
+}
+
+function updateProgress(data) {
+    const { status, progress, total, message } = data;
+    let pct = total > 0 ? Math.round((progress / total) * 100) : (status === 'extracting' || status === 'segmenting' ? 5 : 0);
+    progressBar.style.width = pct + '%';
+
+    let icon = '<span class="spinner"></span>';
+    if (status === 'extracting') icon = '🎵';
+    else if (status === 'segmenting') icon = '✂️';
+    else if (status === 'transcribing') icon = '✍️';
+
+    let text = `${icon} ${message || status}`;
+    if (total > 0 && status === 'transcribing') text += ` (${progress}/${total}, ${pct}%)`;
+    progressText.innerHTML = text;
+}
+
+function finishTask(data) {
+    progressSection.classList.remove('show');
+    resultSection.classList.add('show');
+
+    if (data.status === 'done') {
+        statusBadge.textContent = '✓ 转录完成';
+        statusBadge.className = 'status-badge success';
+        statusBadge.style.display = 'inline-block';
+        resultText.textContent = data.result || '（无内容）';
+
+        if (data.segments && data.segments.length > 1) {
+            let html = '';
+            data.segments.forEach((seg, i) => {
+                if (seg.trim()) html += `<div class="segment-item"><span class="seg-label">[第${i+1}段]</span>${escapeHtml(seg)}</div>`;
+            });
+            segmentsSection.innerHTML = html;
+        }
+
+        // Auto-save if checked
+        if (autoSaveCheck.checked) {
+            saveAsMarkdown();
+        }
+    } else {
+        showError(data.error || data.message || '未知错误');
+    }
+    startBtn.disabled = false;
+}
+
+function showError(msg) {
+    progressSection.classList.remove('show');
+    resultSection.classList.add('show');
+    statusBadge.textContent = '✗ 错误';
+    statusBadge.className = 'status-badge error';
+    statusBadge.style.display = 'inline-block';
+    resultText.textContent = msg;
+    startBtn.disabled = false;
+}
+
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+// ── Save as Markdown ──────────────────────────────────────
+async function saveAsMarkdown() {
+    if (!currentTaskId) { showToast('没有可保存的结果', 'error'); return; }
+
+    const dir = outputDirInput.value.trim();
+    const body = { task_id: currentTaskId };
+    if (dir) body.output_dir = dir;
+
+    try {
+        const resp = await fetch('/api/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json();
+        if (data.error) {
+            saveStatus.textContent = '✗ 保存失败: ' + data.error;
+            saveStatus.className = 'save-status show error';
+        } else {
+            saveStatus.textContent = '✓ ' + data.message;
+            saveStatus.className = 'save-status show success';
+        }
+    } catch (err) {
+        saveStatus.textContent = '✗ 保存失败: ' + err.message;
+        saveStatus.className = 'save-status show error';
+    }
+}
+
+saveMdBtn.addEventListener('click', saveAsMarkdown);
+
+// ── Copy & Download ───────────────────────────────────────
+copyBtn.addEventListener('click', () => {
+    const text = resultText.textContent;
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        showToast('已复制到剪贴板', 'success');
+    }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast('已复制到剪贴板', 'success');
+    });
+});
+
+downloadBtn.addEventListener('click', () => {
+    const text = resultText.textContent;
+    if (!text) return;
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const baseName = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, '') : 'transcription';
+    a.href = url;
+    a.download = baseName + '_转录.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+function showToast(msg, type) {
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transition = 'opacity 0.3s';
+        setTimeout(() => toast.remove(), 300);
+    }, 2000);
+}
+
+// ── Shutdown ──────────────────────────────────────────────
+shutdownBtn.addEventListener('click', () => {
+    confirmOverlay.classList.add('show');
+});
+
+confirmCancel.addEventListener('click', () => {
+    confirmOverlay.classList.remove('show');
+});
+
+confirmOk.addEventListener('click', async () => {
+    confirmOk.textContent = '正在关闭...';
+    confirmOk.disabled = true;
+    try {
+        await fetch('/api/shutdown', { method: 'POST' });
+    } catch (e) {}
+    // Show final message
+    document.body.innerHTML = `
+        <div style="display:flex;justify-content:center;align-items:center;height:100vh;flex-direction:column;">
+            <h1 style="font-size:48px;margin-bottom:16px;">👋</h1>
+            <h2 style="color:#8b8fa8;font-weight:500;">MiMo STT 服务已关闭</h2>
+            <p style="color:#555;margin-top:12px;">可以关闭此页面了</p>
+        </div>
+    `;
+});
+</script>
+</body>
+</html>
