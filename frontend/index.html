@@ -310,11 +310,12 @@ header p {
             <div class="setting-group">
                 <label>模型名称</label>
                 <select id="modelSelect">
-                    <option value="mimo-v2.5">mimo-v2.5（推理模型）</option>
-                    <option value="mimo-v2-omni">mimo-v2-omni</option>
+                    <option value="mimo-v2.6-flash">mimo-v2.6-flash（默认，支持转录指令）</option>
+                    <option value="mimo-v2.5-asr">mimo-v2.5-asr（专用语音识别）</option>
                     <option value="__custom__">自定义...</option>
                 </select>
                 <input type="text" id="modelCustomInput" placeholder="输入自定义模型名" style="margin-top:6px;display:none;">
+                <p id="modelNotice" role="status" style="margin-top:8px;color:var(--text2);font-size:13px;"></p>
             </div>
         </div>
         <div class="setting-group" style="margin-top:12px;">
@@ -384,6 +385,7 @@ const apiEndpointInput = document.getElementById('apiEndpointInput');
 const apiKeyInput = document.getElementById('apiKeyInput');
 const modelSelect = document.getElementById('modelSelect');
 const modelCustomInput = document.getElementById('modelCustomInput');
+const modelNotice = document.getElementById('modelNotice');
 const promptInput = document.getElementById('promptInput');
 const outputDirInput = document.getElementById('outputDirInput');
 const autoSaveCheck = document.getElementById('autoSaveCheck');
@@ -410,39 +412,68 @@ let pollTimer = null;
 
 // ── localStorage persistence ──────────────────────────────
 const STORAGE_KEY = 'mimo_stt_settings';
+const DEFAULT_MODEL = 'mimo-v2.6-flash';
+const ASR_MODEL = 'mimo-v2.5-asr';
+const RETIRED_MODELS = new Map([
+    ['mimo-v2.5', DEFAULT_MODEL],
+    ['mimo-v2.5-pro', 'mimo-v2.6-pro'],
+    ['mimo-v2-omni', DEFAULT_MODEL],
+    ['mimo-v2-flash', DEFAULT_MODEL],
+    ['mimo-v2-pro', 'mimo-v2.6-pro'],
+]);
+
+function normalizeModel(model) {
+    const value = typeof model === 'string' ? model.trim() : '';
+    return RETIRED_MODELS.get(value) || value || DEFAULT_MODEL;
+}
+
+function updateModelUI() {
+    modelCustomInput.style.display = modelSelect.value === '__custom__' ? 'block' : 'none';
+    const asr = getModel() === ASR_MODEL;
+    promptInput.disabled = asr;
+    modelNotice.textContent = asr
+        ? '专用 ASR 自动识别中英文，不使用提示词；按音频时长计费或扣除套餐额度。'
+        : '音频将在云端转录；旧模型名称会自动迁移到 V2.6，API 地址和密钥保持原设置。';
+}
 
 function loadSettings() {
     try {
         const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return;
         if (saved.apiEndpoint) apiEndpointInput.value = saved.apiEndpoint;
         if (saved.apiKey) apiKeyInput.value = saved.apiKey;
-        if (saved.model) {
-            const opts = Array.from(modelSelect.options).map(o => o.value);
-            if (opts.includes(saved.model)) {
-                modelSelect.value = saved.model;
-            } else {
-                modelSelect.value = '__custom__';
-                modelCustomInput.value = saved.model;
-                modelCustomInput.style.display = 'block';
-            }
+        const model = normalizeModel(saved.model);
+        const opts = Array.from(modelSelect.options).map(o => o.value);
+        if (opts.includes(model)) {
+            modelSelect.value = model;
+        } else {
+            modelSelect.value = '__custom__';
+            modelCustomInput.value = model;
+            modelCustomInput.style.display = 'block';
         }
         if (saved.prompt) promptInput.value = saved.prompt;
         if (saved.outputDir) outputDirInput.value = saved.outputDir;
         if (saved.autoSave !== undefined) autoSaveCheck.checked = saved.autoSave;
+        // Update only the model field; retain endpoint, key and unknown settings.
+        if (saved.model !== model) {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({...saved, model}));
+        }
     } catch (e) {}
 }
 
 function saveSettings() {
-    const model = modelSelect.value === '__custom__' ? modelCustomInput.value.trim() : modelSelect.value;
     const settings = {
         apiEndpoint: apiEndpointInput.value.trim(),
         apiKey: apiKeyInput.value.trim(),
-        model: model,
+        model: getModel(),
         prompt: promptInput.value,
         outputDir: outputDirInput.value.trim(),
         autoSave: autoSaveCheck.checked,
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    } catch (e) {} // A blocked/full store must not prevent transcription.
+    updateModelUI();
 }
 
 // Save on any change
@@ -462,13 +493,14 @@ function saveSettings() {
 
 // Load on startup
 loadSettings();
+updateModelUI();
 
 // ── Get effective model name ──────────────────────────────
 function getModel() {
     if (modelSelect.value === '__custom__') {
-        return modelCustomInput.value.trim() || 'mimo-v2.5';
+        return normalizeModel(modelCustomInput.value);
     }
-    return modelSelect.value;
+    return normalizeModel(modelSelect.value);
 }
 
 // ── File Selection ────────────────────────────────────────

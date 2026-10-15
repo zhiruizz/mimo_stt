@@ -23,6 +23,16 @@ import requests
 # ── Config ──────────────────────────────────────────────────────────────────
 DEFAULT_API_KEY = ""
 DEFAULT_API_ENDPOINT = "https://token-plan-cn.xiaomimimo.com/v1/chat/completions"
+DEFAULT_MODEL = "mimo-v2.6-flash"
+ASR_MODEL = "mimo-v2.5-asr"
+# Exact aliases only: ASR/TTS IDs and unknown custom models must remain intact.
+RETIRED_MODELS = {
+    "mimo-v2.5": DEFAULT_MODEL,
+    "mimo-v2.5-pro": "mimo-v2.6-pro",
+    "mimo-v2-omni": DEFAULT_MODEL,
+    "mimo-v2-flash": DEFAULT_MODEL,
+    "mimo-v2-pro": "mimo-v2.6-pro",
+}
 SEGMENT_DURATION = 60        # seconds per chunk
 REQUEST_TIMEOUT = 120        # seconds per API call
 MAX_COMPLETION_TOKENS = 4096
@@ -46,6 +56,11 @@ output_dir = DEFAULT_OUTPUT_DIR  # can be changed via API
 
 
 # ── Audio Processing ────────────────────────────────────────────────────────
+def normalize_model(model: str) -> str:
+    model = (model or "").strip() or DEFAULT_MODEL
+    return RETIRED_MODELS.get(model, model)
+
+
 def get_audio_duration(wav_path: str) -> float:
     with wave.open(wav_path, 'rb') as wf:
         return wf.getnframes() / wf.getframerate()
@@ -76,9 +91,12 @@ def split_wav(wav_path: str, segment_sec: int, tmp_dir: str) -> list:
             '-ac', str(CHANNELS), '-ar', str(SAMPLE_RATE),
             '-sample_fmt', 's16', '-f', 'wav', out_path,
         ]
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if os.path.exists(out_path) and os.path.getsize(out_path) > 44:
-            segments.append(out_path)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg segment {idx + 1} failed: {result.stderr[-500:]}")
+        if not os.path.exists(out_path) or os.path.getsize(out_path) <= 44:
+            raise RuntimeError(f"ffmpeg segment {idx + 1} is empty or missing")
+        segments.append(out_path)
         start = end
         idx += 1
     return segments
@@ -93,6 +111,7 @@ def wav_to_base64(wav_path: str) -> str:
 
 def call_mimo_api(audio_b64_uri: str, model: str, prompt: str,
                   api_key: str = DEFAULT_API_KEY, api_endpoint: str = DEFAULT_API_ENDPOINT) -> str:
+    model = normalize_model(model)
     headers = {"api-key": api_key, "Content-Type": "application/json"}
     body = {
         "model": model,
@@ -116,18 +135,36 @@ def call_mimo_api(audio_b64_uri: str, model: str, prompt: str,
         ],
         "max_completion_tokens": MAX_COMPLETION_TOKENS,
     }
+    if model == ASR_MODEL:
+        # ASR has its own contract: audio-only user message, no system/prompt,
+        # thinking or general-model token parameters. Language auto-detects.
+        if len(audio_b64_uri.encode('utf-8')) > 10_000_000:
+            raise ValueError("ASR 音频 Base64 超过 10 MB，请缩短分段时长")
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": [
+                {"type": "input_audio", "input_audio": {"data": audio_b64_uri}},
+            ]}],
+            "asr_options": {"language": "auto"},
+        }
+    elif model in {DEFAULT_MODEL, "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed"}:
+        # Transcription needs final text, not a reasoning-token budget.
+        body["thinking"] = {"type": "disabled"}
     resp = requests.post(api_endpoint, headers=headers, json=body, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
     data = resp.json()
 
-    choice = data["choices"][0]["message"]
+    completion = data["choices"][0]
+    if completion.get("finish_reason") in {"length", "content_filter", "repetition_truncation"}:
+        raise RuntimeError("转录响应未完整结束，请缩短分段或检查模型输出限制")
+    choice = completion["message"]
     content = (choice.get("content") or "").strip()
     reasoning = (choice.get("reasoning_content") or "").strip()
 
     if content:
         return content
     if reasoning:
-        return reasoning
+        raise RuntimeError("模型仅返回思考内容，未返回转录文本")
     return ""
 
 
@@ -177,6 +214,8 @@ def process_task(task_id: str, file_path: str, model: str, prompt: str,
         duration = get_audio_duration(wav_path)
         task["message"] = f"音频时长 {duration:.1f}s，正在分段..."
         segments = split_wav(wav_path, SEGMENT_DURATION, tmp_dir)
+        if not segments:
+            raise RuntimeError("未提取到可转录的音频分段")
         task["total"] = len(segments)
         task["progress"] = 0
         task["results"] = [""] * len(segments)
@@ -229,7 +268,7 @@ def transcribe():
     if ext not in SUPPORTED_EXTENSIONS:
         return jsonify({"error": f"Unsupported format: {ext}"}), 400
 
-    model = request.form.get("model", "mimo-v2.5")
+    model = normalize_model(request.form.get("model", DEFAULT_MODEL))
     prompt = request.form.get("prompt", "请将音频中的语音内容逐字转录为文本。只输出转录文本，不要添加任何额外说明。")
     api_key = request.form.get("api_key", DEFAULT_API_KEY)
     api_endpoint = request.form.get("api_endpoint", DEFAULT_API_ENDPOINT)
